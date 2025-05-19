@@ -27,10 +27,12 @@ import { AllCurrenciesData, ExchangeRatesMap } from '@/lib/utils';
 
 
 export const dynamic = 'force-dynamic';
-// console.log('DashboardPage.tsx: Script loaded (top level)'); // Keep for debugging if needed
 
-interface DashboardPageServerProps {
-  searchParams: { [key: string]: string | string[] | undefined } | Promise<{ [key: string]: string | string[] | undefined }>;
+// Standard Next.js PageProps (can be imported from 'next' in newer versions if available,
+// or defined simply like this for clarity and compatibility)
+interface PageProps {
+  params?: { [key: string]: string | string[] | undefined }; // For dynamic routes, e.g., /blog/[slug]
+  searchParams: { [key: string]: string | string[] | undefined }; // searchParams are resolved by Next.js
 }
 
 // Renamed for clarity: these aggregates are in BASE_REPORTING_CURRENCY (USD)
@@ -59,13 +61,13 @@ export interface DashboardInitialProps extends DashboardAggregatesUSD, Dashboard
 }
 
 
-export default async function DashboardPage({ searchParams: searchParamsProp }: DashboardPageServerProps) {
+export default async function DashboardPage({ searchParams }: PageProps) { // Use PageProps
   const invocationTimestamp = new Date().toISOString();
-  // console.log(`[${invocationTimestamp}] DashboardPage: Function invoked.`); // Keep for debugging
+  // console.log(`[${invocationTimestamp}] DashboardPage: Function invoked.`);
 
-  const resolvedSearchParams = await searchParamsProp;
-  const fromParam = typeof resolvedSearchParams.from === 'string' ? resolvedSearchParams.from : undefined;
-  const toParam = typeof resolvedSearchParams.to === 'string' ? resolvedSearchParams.to : undefined;
+  // `searchParams` is already the resolved object here, no need to await.
+  const fromParam = typeof searchParams.from === 'string' ? searchParams.from : undefined;
+  const toParam = typeof searchParams.to === 'string' ? searchParams.to : undefined;
 
   const supabase = await createServerClientWrapper();
 
@@ -164,7 +166,7 @@ export default async function DashboardPage({ searchParams: searchParamsProp }: 
     if (financialDataErrors.length > 0) {
         fetchDataError = financialDataErrors.map(e => e!.message).join('; ');
         console.error(`[${invocationTimestamp}] DashboardPage: Financial data fetch errors: ${fetchDataError}`);
-        // Potentially throw or handle gracefully depending on severity
+        // Potentially throw or handle gracefully depending on severity if needed
     }
 
     const incomes: Income[] = incomeRes.data || [];
