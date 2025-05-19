@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 // src/app/(app)/dashboard/page.tsx
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { createServerClientWrapper } from '@/lib/supabase/server';
@@ -17,25 +18,27 @@ import { getAccountsByUserId } from '@/services/accountService';
 import { getInvestmentsByUserId } from '@/services/investmentService';
 import { getDebtsByUserId } from '@/services/debtService';
 import { getBudgetsByUserId } from '@/services/budgetService';
-import { getCurrentUserProfile } from '@/services/userService'; // Import profile service
-import { getCurrencies, getMultipleExchangeRates } from '@/services/currencyService'; // Import currency service
+import { getCurrentUserProfile } from '@/services/userService';
+import { getCurrencies, getMultipleExchangeRates } from '@/services/currencyService';
 
 import DashboardClientContent from '@/components/dashboard/DashboardClientContent';
 import type { Income, Expense, Account, Investment, Debt, Budget, Profile } from '@/types';
 import { BASE_REPORTING_CURRENCY, DEFAULT_CURRENCY, CurrencyCode } from '@/lib/constants';
 import { AllCurrenciesData, ExchangeRatesMap } from '@/lib/utils';
 
-
 export const dynamic = 'force-dynamic';
 
-// Standard Next.js PageProps (can be imported from 'next' in newer versions if available,
-// or defined simply like this for clarity and compatibility)
+// Type for the resolved params/searchParams object
+type ResolvedRouteInfo = { [key: string]: string | string[] | undefined };
+
+// Adjusted PageProps to match Next.js 15's expected structure
+// where params/searchParams can be undefined or a Promise.
 interface PageProps {
-  params?: { [key: string]: string | string[] | undefined }; // For dynamic routes, e.g., /blog/[slug]
-  searchParams: { [key: string]: string | string[] | undefined }; // searchParams are resolved by Next.js
+  params?: Promise<ResolvedRouteInfo>;
+  searchParams?: Promise<ResolvedRouteInfo>;
 }
 
-// Renamed for clarity: these aggregates are in BASE_REPORTING_CURRENCY (USD)
+// Your specific interfaces remain the same
 export interface DashboardAggregatesUSD {
   totalIncomeUSD: number;
   totalSpendingUSD: number;
@@ -56,16 +59,22 @@ export interface DashboardRawData {
 export interface DashboardInitialProps extends DashboardAggregatesUSD, DashboardRawData {
   userProfile: Profile;
   allCurrenciesData: AllCurrenciesData;
-  currentExchangeRates: ExchangeRatesMap; // Rates from USD to target currencies
+  currentExchangeRates: ExchangeRatesMap;
   baseReportingCurrency: CurrencyCode;
 }
 
-
-export default async function DashboardPage({ searchParams }: PageProps) { // Use PageProps
+export default async function DashboardPage({
+  params: paramsPromise,
+  searchParams: searchParamsPromise,
+}: PageProps) {
   const invocationTimestamp = new Date().toISOString();
-  // console.log(`[${invocationTimestamp}] DashboardPage: Function invoked.`);
 
-  // `searchParams` is already the resolved object here, no need to await.
+  // Await the promises if they exist, otherwise default to an empty object.
+  // For a non-dynamic route like /dashboard, `params` will resolve to an empty object.
+  const params: ResolvedRouteInfo = paramsPromise ? await paramsPromise : {};
+  const searchParams: ResolvedRouteInfo = searchParamsPromise ? await searchParamsPromise : {};
+
+  // Now use `searchParams` (and `params` if it were a dynamic route) as regular objects
   const fromParam = typeof searchParams.from === 'string' ? searchParams.from : undefined;
   const toParam = typeof searchParams.to === 'string' ? searchParams.to : undefined;
 
@@ -79,10 +88,8 @@ export default async function DashboardPage({ searchParams }: PageProps) { // Us
   if (getUserError || !user) {
     console.error(`[${invocationTimestamp}] DashboardPage: User error or no user. Redirecting to login. Error: ${getUserError?.message}`);
     redirect('/auth/login');
-    return null; // Satisfy TypeScript, redirect will occur
+    return null;
   }
-  
-  // console.log(`[${invocationTimestamp}] DashboardPage: User authenticated: ${user.email}`);
   
   const today = new Date();
   let fromDate: Date = startOfMonth(today); 
@@ -111,7 +118,6 @@ export default async function DashboardPage({ searchParams }: PageProps) { // Us
   let initialProps: DashboardInitialProps | null = null;
 
   try {
-    // --- Fetch core financial data ---
     const [
       profileRes,
       currenciesRes,
@@ -124,7 +130,7 @@ export default async function DashboardPage({ searchParams }: PageProps) { // Us
       currentMonthExpenseRes,
     ] = await Promise.all([
       getCurrentUserProfile(supabase, user.id),
-      getCurrencies(supabase, true), // Fetch active currencies
+      getCurrencies(supabase, true),
       getIncomesByUserId(supabase, user.id, dateRangeForFetch),
       getExpensesByUserId(supabase, user.id, dateRangeForFetch),
       getAccountsByUserId(supabase, user.id),
@@ -137,11 +143,9 @@ export default async function DashboardPage({ searchParams }: PageProps) { // Us
       }),
     ]);
 
-    // --- Error Handling & Data Preparation ---
     if (profileRes.error || !profileRes.data) throw new Error(`Failed to fetch profile: ${profileRes.error?.message}`);
     const userProfile = profileRes.data;
     userProfile.preferred_currency = userProfile.preferred_currency || DEFAULT_CURRENCY;
-
 
     if (currenciesRes.error || !currenciesRes.data) throw new Error(`Failed to fetch currencies: ${currenciesRes.error?.message}`);
     const allCurrenciesList = currenciesRes.data;
@@ -150,14 +154,11 @@ export default async function DashboardPage({ searchParams }: PageProps) { // Us
         return acc;
     }, {} as AllCurrenciesData);
 
-    // Fetch exchange rates for all active currencies AND user's preferred (if not already active)
     const targetRateCurrencies = [...new Set([...allCurrenciesList.map(c => c.code), userProfile.preferred_currency])];
     const ratesRes = await getMultipleExchangeRates(supabase, format(startOfToday(), 'yyyy-MM-dd'), targetRateCurrencies, BASE_REPORTING_CURRENCY);
     if (ratesRes.error) console.warn(`[${invocationTimestamp}] DashboardPage: Error fetching some exchange rates: ${ratesRes.error.message}. Proceeding with available rates.`);
     const currentExchangeRates: ExchangeRatesMap = ratesRes.data || Object.fromEntries(targetRateCurrencies.map(code => [code, 1])) as ExchangeRatesMap;
 
-
-    // Consolidate financial data fetch errors
     const financialDataErrors = [
         incomeRes.error, expenseRes.error, accountRes.error, investmentRes.error, 
         debtRes.error, currentMonthBudgetRes.error, currentMonthExpenseRes.error
@@ -166,7 +167,6 @@ export default async function DashboardPage({ searchParams }: PageProps) { // Us
     if (financialDataErrors.length > 0) {
         fetchDataError = financialDataErrors.map(e => e!.message).join('; ');
         console.error(`[${invocationTimestamp}] DashboardPage: Financial data fetch errors: ${fetchDataError}`);
-        // Potentially throw or handle gracefully depending on severity if needed
     }
 
     const incomes: Income[] = incomeRes.data || [];
@@ -177,7 +177,6 @@ export default async function DashboardPage({ searchParams }: PageProps) { // Us
     const currentMonthBudgets: Budget[] = currentMonthBudgetRes.data || [];
     const currentMonthExpenses: Expense[] = currentMonthExpenseRes.data || [];
 
-    // --- Calculate Aggregates (in USD using _reporting_currency fields) ---
     const totalIncomeUSD = incomes.reduce((sum, item) => sum + item.amount_reporting_currency, 0);
     const totalSpendingUSD = expenses.reduce((sum, item) => sum + item.amount_reporting_currency, 0);
     const netSavingsUSD = totalIncomeUSD - totalSpendingUSD;
@@ -199,12 +198,10 @@ export default async function DashboardPage({ searchParams }: PageProps) { // Us
       currentExchangeRates,
       baseReportingCurrency: BASE_REPORTING_CURRENCY,
     };
-    // console.log(`[${invocationTimestamp}] DashboardPage: dashboardData processed successfully.`);
 
   } catch (error: any) {
     console.error(`[${invocationTimestamp}] DashboardPage: Critical error in data fetch/processing:`, error);
     fetchDataError = `Unexpected error: ${error.message || "Unknown"}.`;
-    // Re-check user auth before potential redirect or error display
     const { data: { user: refetchOnError } } = await supabase.auth.getUser();
     if (!refetchOnError) { redirect('/auth/login'); return null; }
   }
@@ -215,17 +212,14 @@ export default async function DashboardPage({ searchParams }: PageProps) { // Us
   }
 
   if (!initialProps) {
-    // This case should ideally be covered by the catch block or specific data fetch errors
     console.warn(`[${invocationTimestamp}] DashboardPage: initialProps is null (no specific error). This indicates a logic flaw.`);
     return ( <div className="container p-4"><h1 className="text-2xl text-red-600">Error Loading Dashboard</h1><p>Failed to prepare dashboard data.</p></div> );
   }
 
-  // console.log(`[${invocationTimestamp}] DashboardPage: Rendering ClientContent. InitialDateRange:`, JSON.stringify(initialClientDateRange));
   return (
     <DashboardClientContent
       initialProps={initialProps} 
       initialDateRange={initialClientDateRange}
-      // userId={user.id} // userId is inside initialProps.userProfile.id
     />
   );
 }
